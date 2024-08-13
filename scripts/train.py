@@ -1,4 +1,0 @@
-def train(model):
-    return ...
-
-
