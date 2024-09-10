@@ -1,9 +1,6 @@
 """
 TODO :
-- make hyperparameters passed as arguments
 - try changing number of workers for data loading
-- set default hyperparameters better
-- put loss as a command line parameter
 """
 
 
@@ -11,19 +8,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Subset, Dataset, DataLoader
-import os
+from torch.utils.data import Subset, DataLoader
 import numpy as np
-import rasterio
 import matplotlib.pyplot as plt
 import random
 import pandas as pd
 import time
-import datetime
 import argparse
+import sys
 from model import *
 from utils import TIFDataset, ToTensor
 from utils import jaccard_index_prob, jaccard_loss, mcc, f1_score, overall_accuracy
+from config import config
+from config import MODEL_CONFIGS
+
 
 
 def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_epochs, model_save_path, metrics_save_path, curve_save_path, device):
@@ -51,7 +49,8 @@ def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_
 
             # Forward pass
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            
+            loss = criterion(outputs[1], labels)
 
             # Backward pass and optimize
             optimizer.zero_grad()
@@ -79,7 +78,7 @@ def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_
             torch.save(model.state_dict(), model_save_path)
             print(f"Saving model ... ({model_save_path})")
 
-    torch.save(model.state_dict(), 'hedgedexv2.4/output/models/last_terminal_model.pth')
+    torch.save(model.state_dict(), 'hedgedexv4.0/output/models/last_terminal_model.pth')
     
     # Save training metrics to CSV
     df = pd.DataFrame({'Epoch': range(1, n_epochs+1), 'Loss': training_losses})
@@ -130,23 +129,30 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a neural network model.")
     
     # Add arguments
-    parser.add_argument('--timestamp', type=str, default='TESTTEST', required=True, help='Timestamp for naming outputs')
+    parser.add_argument('--timestamp', type=str, default='TESTTEST', help='Timestamp for naming outputs')
     parser.add_argument('--bs', type=int, default=4, help='Input batch size for training (default: 4)')
     parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate (default: 0.0001)')
     parser.add_argument('--epochs', type=int, default=3, help='Number of epochs to train (default: 3)')
     parser.add_argument('--bands', type=int, default=5, help='Number of bands of data (default: 5)')
     parser.add_argument('--dssize', type=int, default=1024, help='Size of the dataset (default: 1024)')
     parser.add_argument('--data_dir', type=str, default='$HOME/scratch/data/dataset04/', help='Path to the data directory (default: $HOME/scratch/data/dataset04/)')
+    parser.add_argument('--loss', type=str, default='jaccard_loss', help='Loss function to use (default: jaccard_loss)')
+    parser.add_argument('--job_id', type=int, default=0, help='Job ID for the current run (default: 0)')
+    parser.add_argument('--pretrained', type=int, default=1, help='Use pretrained model (default: 1 (True))')
 
     # Parse arguments
     args = parser.parse_args()
     return args
     
 def main():
+    # Connect to GPU if possible
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     args = parse_args()
 
     timestamp = args.timestamp
     start = time.time()
+    job_id = args.job_id
     
     
     # Hyperparameters
@@ -155,13 +161,15 @@ def main():
     n_epochs = args.epochs
     n_bands = args.bands
     dataset_size = args.dssize
-    loss = jaccard_loss
-    model_save_path = f'hedgedexv2.4/output/models/best_model_{timestamp}.pth'
-    metrics_save_path = f'hedgedexv2.4/output/metrics/training_metrics_{timestamp}.csv'
-    curve_save_path = f'hedgedexv2.4/output/plots/training_curve_{timestamp}.png'
+    pretrained = bool(args.pretrained)
+    loss = jaccard_loss if args.loss == 'jaccard_loss' else nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10])).to(device)
+    hp_stamp = f'{job_id}_bs{bs}_lr{lr}_epochs{n_epochs}_bands{n_bands}_{args.loss}_pretrained{pretrained}'
+    model_save_path = f'hedgedexv4.0/output/models/model_{hp_stamp}.pth'
+    metrics_save_path = f'hedgedexv4.0/output/metrics/metrics_{hp_stamp}.csv'
+    curve_save_path = f'hedgedexv4.0/output/plots/curve_{hp_stamp}.png'
     data_dir = args.data_dir
     print(f"Training log for training at timestamp {timestamp}")
-    print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {loss.__name__}")
+    print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {loss.__name__}\n pretrained: {pretrained}")
     
     # Set random seed for reproducibility
     seed = 42
@@ -171,19 +179,22 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
-    # Connect to GPU if possible
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
     # Load the data
     trainloader, valloader = load_data(data_dir, n_bands, bs, dataset_size)
 
     #############################
     # Initialize and train the model
-    model = UNet(n_channels=n_bands, n_classes=1).to(device)
+    #model = UNet(n_channels=n_bands, n_classes=1).to(device)
+    
+    config.defrost()
+    config.merge_from_file('hedgedexv4.0/test_config.yaml')
+    config.freeze()
+    model = get_seg_model(config, n_channels=n_bands, pretrained=pretrained).to(device)
     print('Model initialized.')
+    #############################
 
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]).to(device))
-    #criterion = loss
+    #criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]).to(device))
+    criterion = loss
     optimizer = optim.Adam(model.parameters(), lr=lr)
     metrics = [jaccard_index_prob, mcc, f1_score, overall_accuracy]
 
@@ -196,7 +207,9 @@ def main():
     training_time = end - start
     minutes = int(training_time // 60)
     seconds = int(training_time % 60)
-    print(f"Training time: {minutes}m{seconds}s.")
+    hours = int(minutes // 60)
+    minutes = minutes % 60
+    print(f"Training time:{hours}h{minutes}m{seconds}s.")
     
 if __name__ == '__main__':
     main()

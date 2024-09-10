@@ -1,8 +1,17 @@
 # Ignore data
 data/
 
+# Outputs
+*/output/
+
+# HRNet-Semantic-Segmentation
+HRNet-Semantic-Segmentation/
+
 # Ignore virtual environment
 venv/
+
+# Model weights
+*.pth
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

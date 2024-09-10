@@ -74,12 +74,12 @@ def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_
         print(epoch_message)
 
         # Save epoch model if it outperforms the last best one
-        if scores[1] > best_score:# and epoch > 130:
-            best_score = scores[1]
-            torch.save(model.state_dict(), model_save_path)
-            print(f"Saving model ... ({model_save_path})")
+        # if scores[1] > best_score:# and epoch > 130:
+        #     best_score = scores[1]
+        #     torch.save(model.state_dict(), model_save_path)
+        #     print(f"Saving model ... ({model_save_path})")
 
-    torch.save(model.state_dict(), 'hedgedexv2.4/output/models/last_terminal_model.pth')
+    torch.save(model.state_dict(), model_save_path)
     
     # Save training metrics to CSV
     df = pd.DataFrame({'Epoch': range(1, n_epochs+1), 'Loss': training_losses})
@@ -112,7 +112,6 @@ def load_data(data_dir, n_bands, bs, dataset_size):
     
     dataset = TIFDataset(root_dir=data_dir, transform=ToTensor(), selected_bands=bands)
 
-    # TODO : rechange
     train_size = int(0.8*dataset_size)
     train_indices = random.sample(range(0, dataset_size), train_size)
     val_indices = [i for i in range(0, dataset_size) if i not in train_indices]
@@ -137,16 +136,22 @@ def parse_args():
     parser.add_argument('--bands', type=int, default=5, help='Number of bands of data (default: 5)')
     parser.add_argument('--dssize', type=int, default=1024, help='Size of the dataset (default: 1024)')
     parser.add_argument('--data_dir', type=str, default='$HOME/scratch/data/dataset04/', help='Path to the data directory (default: $HOME/scratch/data/dataset04/)')
+    parser.add_argument('--loss', type=str, default='jaccard_loss', help='Loss function to use (default: jaccard_loss)')
+    parser.add_argument('--job_id', type=int, default=0, help='Job ID for the current run (default: 0)')
 
     # Parse arguments
     args = parser.parse_args()
     return args
     
 def main():
+    # Connect to GPU if possible
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     args = parse_args()
 
     timestamp = args.timestamp
     start = time.time()
+    job_id = args.job_id
     
     
     # Hyperparameters
@@ -155,13 +160,14 @@ def main():
     n_epochs = args.epochs
     n_bands = args.bands
     dataset_size = args.dssize
-    loss = jaccard_loss
-    model_save_path = f'hedgedexv2.4/output/models/best_model_{timestamp}.pth'
-    metrics_save_path = f'hedgedexv2.4/output/metrics/training_metrics_{timestamp}.csv'
-    curve_save_path = f'hedgedexv2.4/output/plots/training_curve_{timestamp}.png'
+    loss = jaccard_loss if args.loss == 'jaccard_loss' else nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10])).to(device)
+    hp_stamp = f'{job_id}_bs{bs}_lr{lr}_epochs{n_epochs}_bands{n_bands}_{args.loss}'
+    model_save_path = f'hedgedexv2.5/output/models/model_{hp_stamp}.pth'
+    metrics_save_path = f'hedgedexv2.5/output/metrics/metrics_{hp_stamp}.csv'
+    curve_save_path = f'hedgedexv2.5/output/plots/curve_{hp_stamp}.png'
     data_dir = args.data_dir
     print(f"Training log for training at timestamp {timestamp}")
-    print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {loss.__name__}")
+    print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {args.loss}")
     
     # Set random seed for reproducibility
     seed = 42
@@ -171,19 +177,23 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
-    # Connect to GPU if possible
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
     # Load the data
     trainloader, valloader = load_data(data_dir, n_bands, bs, dataset_size)
+    i = 0
+    for batch in valloader:
+        name = batch['name']
+        print(name)
+        i+=1
+        if i == 5:
+            break
 
     #############################
     # Initialize and train the model
     model = UNet(n_channels=n_bands, n_classes=1).to(device)
     print('Model initialized.')
 
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]).to(device))
-    #criterion = loss
+    #criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]).to(device))
+    criterion = loss
     optimizer = optim.Adam(model.parameters(), lr=lr)
     metrics = [jaccard_index_prob, mcc, f1_score, overall_accuracy]
 
