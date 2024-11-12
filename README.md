@@ -18,6 +18,7 @@ hedgedexv2.4 : UNet with dataset04
 hedgedexv2.5 : UNet with dataset05  
 hedgedexv3.0 : HRNet with dataset05  
 hedgedexv4.0 : HRNet+OCR with dataset05  
+hedgedexv4.1 : HRNet+OCR with dataset05 AND random crop
 hedgedexv5.0 : UNet_time with dataset06
 
 

@@ -1,6 +1,7 @@
 # Imports
 import torch
 from torch.utils.data import Dataset
+from torchvision import transforms
 import os
 import numpy as np
 import rasterio
@@ -113,7 +114,6 @@ class TIFDataset(Dataset):
         return len(self.file_names)
 
     def __getitem__(self, idx):
-        print(idx)
         img_path = os.path.join(self.root_dir, self.file_names[idx])
         with rasterio.open(img_path) as src:
             # Read the image data
@@ -121,31 +121,38 @@ class TIFDataset(Dataset):
 
             # Read the image metadata
             band_names = src.descriptions
-
+        
         # Make indices correspond to band_names
         indices = [band_names.index(band) for band in self.bands]
+        indices.append(-1)
 
         # Only take selected bands
-        image = raster[indices, :, :]
-        label = raster[-1, :, :]
+        raster = raster[indices, :, :]
 
-        image = image.astype(np.float32)
-        label = label.astype(np.float32)
+        raster = raster.astype(np.float32)
 
-        label = np.expand_dims(label, axis=0)  # Add a channel dimension to the label
-
-        sample = {'image': torch.tensor(image, dtype=torch.float32),
-                  'label': torch.tensor(label, dtype=torch.float32),
+        sample = {'raster': raster,
                   'name': self.file_names[idx]}
-
+        
         if self.transform:
             sample = self.transform(sample)
+            
 
         return sample
 
 class ToTensor(object):
     def __call__(self, sample):
-        image, label, name = sample['image'], sample['label'], sample['name']
-        return {'image': image.clone().detach(),
-                'label': label.clone().detach(),
+        
+        raster, name = sample['raster'], sample['name']
+        
+        raster = torch.tensor(raster, dtype=torch.float32)
+        transform = transforms.Compose([transforms.RandomCrop((64, 64))])
+        
+        raster = transform(raster)
+        image = raster[:-1, :, :]
+        label = raster[-1, :, :]
+        label = torch.unsqueeze(label, 0)
+                
+        return {'image': image,
+                'label': label,
                 'name': name}

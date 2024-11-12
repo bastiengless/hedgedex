@@ -1,6 +1,9 @@
 """
 TODO :
+- make hyperparameters passed as arguments
 - try changing number of workers for data loading
+- set default hyperparameters better
+- put loss as a command line parameter
 """
 
 
@@ -8,20 +11,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import Subset, DataLoader
+from torch.utils.data import Subset, Dataset, DataLoader
+import os
 import numpy as np
+import rasterio
 import matplotlib.pyplot as plt
 import random
 import pandas as pd
 import time
+import datetime
 import argparse
-import sys
 from model import *
 from utils import TIFDataset, ToTensor
 from utils import jaccard_index_prob, jaccard_loss, mcc, f1_score, overall_accuracy
-from config import config
-from config import MODEL_CONFIGS
-
 
 
 def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_epochs, model_save_path, metrics_save_path, curve_save_path, device):
@@ -72,12 +74,12 @@ def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_
         print(epoch_message)
 
         # Save epoch model if it outperforms the last best one
-        if scores[1] > best_score:# and epoch > 130:
-            best_score = scores[1]
-            torch.save(model.state_dict(), model_save_path)
-            print(f"Saving model ... ({model_save_path})")
+        # if scores[1] > best_score:# and epoch > 130:
+        #     best_score = scores[1]
+        #     torch.save(model.state_dict(), model_save_path)
+        #     print(f"Saving model ... ({model_save_path})")
 
-    torch.save(model.state_dict(), 'hedgedexv3.0/output/models/last_terminal_model.pth')
+    torch.save(model.state_dict(), 'hedgedexv2.6/output/models/last_terminal_model.pth')
     
     # Save training metrics to CSV
     df = pd.DataFrame({'Epoch': range(1, n_epochs+1), 'Loss': training_losses})
@@ -110,13 +112,21 @@ def load_data(data_dir, n_bands, bs, dataset_size):
     
     dataset = TIFDataset(root_dir=data_dir, transform=ToTensor(), selected_bands=bands)
 
-    # TODO : rechange
     train_size = int(0.8*dataset_size)
     train_indices = random.sample(range(0, dataset_size), train_size)
     val_indices = [i for i in range(0, dataset_size) if i not in train_indices]
 
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)
+    
+    # Print name of every element in val_dataset
+    names = []
+    for i in range(len(val_dataset)):
+        names.append(val_dataset[i]['name'])
+
+    with open('hedgedexv2.6/output/val_names.txt', 'w') as file:
+        for item in names:
+            file.write(f"{item}\n")
 
     trainloader = DataLoader(train_dataset, batch_size=bs, shuffle=True, num_workers=0)
     valloader = DataLoader(val_dataset, batch_size=bs, shuffle=False, num_workers=0)
@@ -137,7 +147,6 @@ def parse_args():
     parser.add_argument('--data_dir', type=str, default='$HOME/scratch/data/dataset04/', help='Path to the data directory (default: $HOME/scratch/data/dataset04/)')
     parser.add_argument('--loss', type=str, default='jaccard_loss', help='Loss function to use (default: jaccard_loss)')
     parser.add_argument('--job_id', type=int, default=0, help='Job ID for the current run (default: 0)')
-    parser.add_argument('--pretrained', type=bool, default=0, help='Use pretrained model (default: 0 (False))')
 
     # Parse arguments
     args = parser.parse_args()
@@ -160,15 +169,14 @@ def main():
     n_epochs = args.epochs
     n_bands = args.bands
     dataset_size = args.dssize
-    pretrained = args.pretrained
     loss = jaccard_loss if args.loss == 'jaccard_loss' else nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10])).to(device)
-    hp_stamp = f'{job_id}_bs{bs}_lr{lr}_epochs{n_epochs}_bands{n_bands}_{args.loss}_pretrained{pretrained}'
-    model_save_path = f'hedgedexv3.0/output/models/model_{hp_stamp}.pth'
-    metrics_save_path = f'hedgedexv3.0/output/metrics/metrics_{hp_stamp}.csv'
-    curve_save_path = f'hedgedexv3.0/output/plots/curve_{hp_stamp}.png'
+    hp_stamp = f'{job_id}_bs{bs}_lr{lr}_epochs{n_epochs}_bands{n_bands}_{args.loss}'
+    model_save_path = f'hedgedexv2.6/output/models/model_{hp_stamp}.pth'
+    metrics_save_path = f'hedgedexv2.6/output/metrics/metrics_{hp_stamp}.csv'
+    curve_save_path = f'hedgedexv2.6/output/plots/curve_{hp_stamp}.png'
     data_dir = args.data_dir
     print(f"Training log for training at timestamp {timestamp}")
-    print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {loss.__name__}\n pretrained: {pretrained}")
+    print(f" hedgedexv2.5\n batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {args.loss}")
     
     # Set random seed for reproducibility
     seed = 42
@@ -180,17 +188,18 @@ def main():
     
     # Load the data
     trainloader, valloader = load_data(data_dir, n_bands, bs, dataset_size)
+    i = 0
+    for batch in valloader:
+        name = batch['name']
+        print(name)
+        i+=1
+        if i == 5:
+            break
 
     #############################
     # Initialize and train the model
-    #model = UNet(n_channels=n_bands, n_classes=1).to(device)
-    
-    config.defrost()
-    config.merge_from_file('hedgedexv3.0/test_config.yaml')
-    config.freeze()
-    model = get_seg_model(config, n_channels=n_bands, pretrained=pretrained).to(device)
+    model = UNet(n_channels=n_bands, n_classes=1).to(device)
     print('Model initialized.')
-    #############################
 
     #criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10]).to(device))
     criterion = loss
@@ -206,9 +215,7 @@ def main():
     training_time = end - start
     minutes = int(training_time // 60)
     seconds = int(training_time % 60)
-    hours = int(minutes // 60)
-    minutes = minutes % 60
-    print(f"Training time:{hours}h{minutes}m{seconds}s.")
+    print(f"Training time: {minutes}m{seconds}s.")
     
 if __name__ == '__main__':
     main()

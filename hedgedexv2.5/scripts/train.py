@@ -118,6 +118,15 @@ def load_data(data_dir, n_bands, bs, dataset_size):
 
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)
+    
+    # Print name of every element in val_dataset
+    names = []
+    for i in range(len(val_dataset)):
+        names.append(val_dataset[i]['name'])
+
+    with open('hedgedexv2.5/output/val_names.txt', 'w') as file:
+        for item in names:
+            file.write(f"{item}\n")
 
     trainloader = DataLoader(train_dataset, batch_size=bs, shuffle=True, num_workers=0)
     valloader = DataLoader(val_dataset, batch_size=bs, shuffle=False, num_workers=0)
@@ -167,7 +176,7 @@ def main():
     curve_save_path = f'hedgedexv2.5/output/plots/curve_{hp_stamp}.png'
     data_dir = args.data_dir
     print(f"Training log for training at timestamp {timestamp}")
-    print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {args.loss}")
+    print(f" hedgedexv2.5\n batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {args.loss}")
     
     # Set random seed for reproducibility
     seed = 42

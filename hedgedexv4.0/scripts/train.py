@@ -138,7 +138,7 @@ def parse_args():
     parser.add_argument('--data_dir', type=str, default='$HOME/scratch/data/dataset04/', help='Path to the data directory (default: $HOME/scratch/data/dataset04/)')
     parser.add_argument('--loss', type=str, default='jaccard_loss', help='Loss function to use (default: jaccard_loss)')
     parser.add_argument('--job_id', type=int, default=0, help='Job ID for the current run (default: 0)')
-    parser.add_argument('--pretrained', type=int, default=1, help='Use pretrained model (default: 1 (True))')
+    parser.add_argument('--pretrained', type=int, default=0, help='Use pretrained model (default: 0 (False))')
 
     # Parse arguments
     args = parser.parse_args()

@@ -1,6 +1,6 @@
 """
-TODO :
-- try changing number of workers for data loading
+train.py for hedgedexv4.1
+HRNet+OCR with random crop
 """
 
 
@@ -49,7 +49,8 @@ def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_
 
             # Forward pass
             outputs = model(images)
-            loss = criterion(outputs, labels)
+            
+            loss = criterion(outputs[1], labels)
 
             # Backward pass and optimize
             optimizer.zero_grad()
@@ -77,7 +78,7 @@ def train_model(model, trainloader, valloader, criterion, optimizer, metrics, n_
             torch.save(model.state_dict(), model_save_path)
             print(f"Saving model ... ({model_save_path})")
 
-    torch.save(model.state_dict(), 'hedgedexv3.0/output/models/last_terminal_model.pth')
+    torch.save(model.state_dict(), 'hedgedexv4.1/output/models/last_terminal_model.pth')
     
     # Save training metrics to CSV
     df = pd.DataFrame({'Epoch': range(1, n_epochs+1), 'Loss': training_losses})
@@ -128,7 +129,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a neural network model.")
     
     # Add arguments
-    parser.add_argument('--timestamp', type=str, default='TESTTEST', required=True, help='Timestamp for naming outputs')
+    parser.add_argument('--timestamp', type=str, default='TESTTEST', help='Timestamp for naming outputs')
     parser.add_argument('--bs', type=int, default=4, help='Input batch size for training (default: 4)')
     parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate (default: 0.0001)')
     parser.add_argument('--epochs', type=int, default=3, help='Number of epochs to train (default: 3)')
@@ -137,7 +138,7 @@ def parse_args():
     parser.add_argument('--data_dir', type=str, default='$HOME/scratch/data/dataset04/', help='Path to the data directory (default: $HOME/scratch/data/dataset04/)')
     parser.add_argument('--loss', type=str, default='jaccard_loss', help='Loss function to use (default: jaccard_loss)')
     parser.add_argument('--job_id', type=int, default=0, help='Job ID for the current run (default: 0)')
-    parser.add_argument('--pretrained', type=bool, default=0, help='Use pretrained model (default: 0 (False))')
+    parser.add_argument('--pretrained', type=int, default=0, help='Use pretrained model (default: 0 (False))')
 
     # Parse arguments
     args = parser.parse_args()
@@ -160,12 +161,12 @@ def main():
     n_epochs = args.epochs
     n_bands = args.bands
     dataset_size = args.dssize
-    pretrained = args.pretrained
+    pretrained = bool(args.pretrained)
     loss = jaccard_loss if args.loss == 'jaccard_loss' else nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10])).to(device)
     hp_stamp = f'{job_id}_bs{bs}_lr{lr}_epochs{n_epochs}_bands{n_bands}_{args.loss}_pretrained{pretrained}'
-    model_save_path = f'hedgedexv3.0/output/models/model_{hp_stamp}.pth'
-    metrics_save_path = f'hedgedexv3.0/output/metrics/metrics_{hp_stamp}.csv'
-    curve_save_path = f'hedgedexv3.0/output/plots/curve_{hp_stamp}.png'
+    model_save_path = f'hedgedexv4.1/output/models/model_{hp_stamp}.pth'
+    metrics_save_path = f'hedgedexv4.1/output/metrics/metrics_{hp_stamp}.csv'
+    curve_save_path = f'hedgedexv4.1/output/plots/curve_{hp_stamp}.png'
     data_dir = args.data_dir
     print(f"Training log for training at timestamp {timestamp}")
     print(f" batch size: {bs}\n learning rate: {lr}\n number of epochs: {n_epochs}\n number of bands: {n_bands}\n dataset size: {dataset_size}\n loss function: {loss.__name__}\n pretrained: {pretrained}")
@@ -186,7 +187,7 @@ def main():
     #model = UNet(n_channels=n_bands, n_classes=1).to(device)
     
     config.defrost()
-    config.merge_from_file('hedgedexv3.0/test_config.yaml')
+    config.merge_from_file('hedgedexv4.1/test_config.yaml')
     config.freeze()
     model = get_seg_model(config, n_channels=n_bands, pretrained=pretrained).to(device)
     print('Model initialized.')
